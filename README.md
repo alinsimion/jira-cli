@@ -56,5 +56,6 @@ logwork -t 6 -i GAIA-1232 -p lastmonth -m "I did some work"     # this will log 
 
 ### 2. Listing issues
 ```
-list -p GAIA    # lists all your issues in the project GAIA
+list --object issues                     # lists all your issues
+list --object worklogs -m 12 -y 2024     # lists all your worklogs in December 2024
 ```

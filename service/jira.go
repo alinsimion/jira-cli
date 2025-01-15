@@ -265,7 +265,13 @@ func (js *JiraService) LogWork(params utils.LogWorkParams) error {
 		}
 	}
 
-	started := time.Date(int(year), time.Month(int(month)), int(day), 10, 0, 0, 0, time.Local).Format("2006-01-02T15:04:05.000-0700")
+	tempDate := time.Date(int(year), time.Month(int(month)), int(day), 10, 0, 0, 0, time.Local)
+	started := tempDate.Format("2006-01-02T15:04:05.000-0700")
+
+	if tempDate.Weekday() == 0 || tempDate.Weekday() == 6 {
+		slog.Info("is on the weekend no need to log work.", "date", tempDate.Format(time.RFC1123))
+		return nil
+	}
 
 	payload := map[string]any{
 		"comment": map[string]any{
