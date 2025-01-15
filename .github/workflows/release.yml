@@ -15,7 +15,8 @@ jobs:
 
     strategy:
       matrix:
-        platform: [linux/amd64, darwin/amd64, windows/amd64]
+        os: [linux, darwin, windows]   # Define operating systems
+        arch: [amd64]                 # Define architectures
 
     steps:
       - uses: actions/checkout@v4
@@ -23,27 +24,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.23.4'
-      - name: Install dependencies
-        run: go get .
-      - name: Build for ${{ matrix.platform }}
+      
+      # Build for the target platform
+      - name: Build for ${{ matrix.os }}-${{ matrix.arch }}
         run: |
-          os=${{ matrix.platform.split('/')[0] }}
-          arch=${{ matrix.platform.split('/')[1] }}
-          output="dist/myprogram-${os}-${arch}"
-          env GOOS=$os GOARCH=$arch go build -o $output
+          output="dist/myprogram-${{ matrix.os }}-${{ matrix.arch }}"
+          env GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o $output
 
-      # Compress the build output
-      - name: Compress Build Output
-        run: |
-          os=${{ matrix.platform.split('/')[0] }}
-          arch=${{ matrix.platform.split('/')[1] }}
-          tar -czvf dist/myprogram-${os}-${arch}.tar.gz -C dist myprogram-${os}-${arch}
-
-      # Upload artifact to release
+      # Upload the build output as a release asset
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: dist/myprogram-${{ matrix.platform.split('/')[0] }}-${{ matrix.platform.split('/')[1] }}.tar.gz
-          asset_name: myprogram-${{ matrix.platform.split('/')[0] }}-${{ matrix.platform.split('/')[1] }}.tar.gz
-          content_type: application/gzip
+          asset_path: dist/myprogram-${{ matrix.os }}-${{ matrix.arch }}
+          asset_name: myprogram-${{ matrix.os }}-${{ matrix.arch }}
+          content_type: application/octet-stream
