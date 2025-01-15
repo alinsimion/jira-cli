@@ -10,7 +10,12 @@ on:
 # workflow tasks
 jobs:
   build:
+    name: Build and Upload Release Assets
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        platform: [linux/amd64, darwin/amd64, windows/amd64]
 
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +25,25 @@ jobs:
           go-version: '1.23.4'
       - name: Install dependencies
         run: go get .
-      - name: Build
-        run: go build -v ./...
-      - name: Test with the Go CLI
-        run: go test
+      - name: Build for ${{ matrix.platform }}
+        run: |
+          os=${{ matrix.platform.split('/')[0] }}
+          arch=${{ matrix.platform.split('/')[1] }}
+          output="dist/myprogram-${os}-${arch}"
+          env GOOS=$os GOARCH=$arch go build -o $output
+
+      # Compress the build output
+      - name: Compress Build Output
+        run: |
+          os=${{ matrix.platform.split('/')[0] }}
+          arch=${{ matrix.platform.split('/')[1] }}
+          tar -czvf dist/myprogram-${os}-${arch}.tar.gz -C dist myprogram-${os}-${arch}
+
+      # Upload artifact to release
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: dist/myprogram-${{ matrix.platform.split('/')[0] }}-${{ matrix.platform.split('/')[1] }}.tar.gz
+          asset_name: myprogram-${{ matrix.platform.split('/')[0] }}-${{ matrix.platform.split('/')[1] }}.tar.gz
+          content_type: application/gzip
