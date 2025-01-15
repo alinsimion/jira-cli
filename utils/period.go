@@ -13,7 +13,7 @@ const (
 )
 
 var (
-	FlagEnum Period
+	PeriodEnum Period
 )
 
 func (e *Period) String() string {

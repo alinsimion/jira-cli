@@ -29,7 +29,7 @@ func main() {
 		}
 	}
 
-	js := service.NewJiraService(utils.VarMap[utils.JIRA_API_KEY].(string), utils.VarMap[utils.JIRA_ENDPOINT].(string), utils.VarMap[utils.USER_EMAIL].(string))
+	js := service.NewJiraService(utils.VarMap[utils.JIRA_API_KEY].(string), utils.VarMap[utils.JIRA_ENDPOINT].(string), utils.VarMap[utils.JIRA_USER_EMAIL].(string))
 
 	ce := commands.NewCommandEngine(commands.RootCmd, js)
 	ce.Execute(ce.RootCmd)

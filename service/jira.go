@@ -8,12 +8,15 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alinsimion/jira-cli/utils"
+)
+
+var (
+	requests = 0
 )
 
 type JiraUser struct {
@@ -45,11 +48,17 @@ type WorklogsResponseObject struct {
 	WorkLogs   []WorklogResponseObject `json:"worklogs"`
 }
 
+type IssuesResponse struct {
+	Issues        []Issue `json:"issues"`
+	NextPageToken string  `json:"nextPageToken"`
+}
+
 type Issue struct {
 	Id       string                  `json:"id"`
 	Key      string                  `json:"key"`
 	Summary  string                  `json:"summary"`
 	Worklogs []WorklogResponseObject `json:"worklogs"`
+	Updated  time.Time               `json:"updated"`
 }
 
 func (i *Issue) UnmarshalJSON(data []byte) error {
@@ -58,13 +67,13 @@ func (i *Issue) UnmarshalJSON(data []byte) error {
 		ID     string `json:"id"`
 		Key    string `json:"key"`
 		Fields struct {
-			Summary string `json:"summary"`
+			Summary string           `json:"summary"`
+			Updated utils.CustomTime `json:"updated"`
 			Worklog struct {
 				Worklogs []WorklogResponseObject `json:"worklogs"`
 			} `json:"worklog"`
 		} `json:"fields"`
 	}
-
 	var temp Alias
 
 	if err := json.Unmarshal(data, &temp); err != nil {
@@ -74,7 +83,9 @@ func (i *Issue) UnmarshalJSON(data []byte) error {
 	i.Id = temp.ID
 	i.Key = temp.Key
 	i.Summary = temp.Fields.Summary
+	i.Updated = temp.Fields.Updated.Time
 	i.Worklogs = temp.Fields.Worklog.Worklogs
+
 	return nil
 }
 
@@ -100,7 +111,6 @@ func NewJiraService(apiToken string, endpoint string, email string) JiraService 
 
 func (js *JiraService) MakeJiraRequest(urlPath string, method string, payload map[string]any) (*http.Response, error) {
 	baseUrl := fmt.Sprintf("https://%s/%s", js.Endpoint, urlPath)
-
 	var request *http.Request
 	var err error
 
@@ -111,10 +121,6 @@ func (js *JiraService) MakeJiraRequest(urlPath string, method string, payload ma
 			slog.Error("Error while getting worklog ", "error", err.Error())
 			return nil, err
 		}
-
-		request.SetBasicAuth(js.Email, js.APIToken)
-		request.Header.Set("Accept", "application/json")
-		request.Header.Set("Content-Type", "application/json")
 	}
 
 	if method == "POST" {
@@ -131,11 +137,11 @@ func (js *JiraService) MakeJiraRequest(urlPath string, method string, payload ma
 			slog.Error("Error while getting worklog ", "error", err.Error())
 			return nil, err
 		}
-
-		request.SetBasicAuth(js.Email, js.APIToken)
-		request.Header.Set("Accept", "application/json")
-		request.Header.Set("Content-Type", "application/json")
 	}
+
+	request.SetBasicAuth(js.Email, js.APIToken)
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
 
@@ -145,23 +151,6 @@ func (js *JiraService) MakeJiraRequest(urlPath string, method string, payload ma
 		return nil, err
 	}
 	return response, nil
-}
-
-func getSimpleDateFormat(timestamp time.Time) string {
-	return fmt.Sprintf("%d/%d/%d", timestamp.Day(), timestamp.Month(), timestamp.Year())
-}
-
-func daysInMonth(m time.Month) []int {
-	t := time.Date(time.Now().Year(), m, 32, 0, 0, 0, 0, time.UTC)
-
-	daysInMonth := 32 - t.Day()
-	days := make([]int, daysInMonth)
-
-	for i := range days {
-		days[i] = i + 1
-	}
-
-	return days
 }
 
 func (js *JiraService) LogWorkMulti(params utils.LogWorkParams) error {
@@ -175,7 +164,7 @@ func (js *JiraService) LogWorkMulti(params utils.LogWorkParams) error {
 
 			for i := 0; i <= time.Now().Day(); i++ {
 				date := time.Date(time.Now().Year(), currentMonth, i+1, 0, 0, 0, 0, time.Local)
-				simpleDate := getSimpleDateFormat(date)
+				simpleDate := utils.GetSimpleDateFormat(date)
 				tempParams := params
 				tempParams.Date = simpleDate
 				err := js.LogWork(tempParams)
@@ -195,9 +184,9 @@ func (js *JiraService) LogWorkMulti(params utils.LogWorkParams) error {
 				currentYear = currentYear - 1
 			}
 
-			for i := range daysInMonth(previousMonth) {
+			for i := range utils.DaysInMonth(previousMonth) {
 				date := time.Date(currentYear, previousMonth, i+1, 0, 0, 0, 0, time.Local)
-				simpleDate := getSimpleDateFormat(date)
+				simpleDate := utils.GetSimpleDateFormat(date)
 				tempParams := params
 				tempParams.Date = simpleDate
 				err := js.LogWork(tempParams)
@@ -217,7 +206,7 @@ func (js *JiraService) LogWorkMulti(params utils.LogWorkParams) error {
 					continue
 				}
 
-				simpleDate := getSimpleDateFormat(date)
+				simpleDate := utils.GetSimpleDateFormat(date)
 				tempParams := params
 				tempParams.Date = simpleDate
 				err := js.LogWork(tempParams)
@@ -232,6 +221,7 @@ func (js *JiraService) LogWorkMulti(params utils.LogWorkParams) error {
 		if params.Period == utils.Period(utils.PeriodLastWeek) {
 			return errors.New("Not Implemented")
 		}
+
 		if len(errorMessages) > 0 {
 			return errors.New(strings.Join(errorMessages, "\n"))
 		}
@@ -365,146 +355,46 @@ func (js *JiraService) LogWork(params utils.LogWorkParams) error {
 
 }
 
-func drawTable(table map[string]map[string][]string) {
-	// Get all days (keys) in the table and sort them
-	days := []string{}
-	for _, dayMap := range table {
-		for day := range dayMap {
-			days = append(days, day)
-		}
-	}
-
-	// Sort days (to ensure they are printed in order)
-	sort.Strings(days)
-
-	// Determine the width of each column (for padding)
-	colWidth := 15 // Adjust width for better spacing
-
-	// Print the top border of the table
-	printBorder(len(days), colWidth)
-
-	// Print the header row: "Issue Key" and the days of the month
-	printRow("Issue Key", days, colWidth)
-	printBorder(len(days), colWidth)
-
-	// Loop through the table and print each issue's row
-	for issueKey, daysMap := range table {
-		tempDays := []string{}
-		for _, day := range days {
-			worklogTimes := ""
-			if worklogs, ok := daysMap[day]; ok {
-				// If multiple worklogs, print each on a new line
-				worklogTimes = formatWorklogs(worklogs)
-			}
-			tempDays = append(tempDays, worklogTimes)
-		}
-		printRow(issueKey, tempDays, colWidth)
-		printBorder(len(days), colWidth)
-	}
-}
-
-// Helper function to format worklogs with multiple entries (one below the other)
-func formatWorklogs(worklogs []string) string {
-	// Join worklogs with a newline, simulating a cell with multiple rows
-	return strings.Join(worklogs, "\n")
-}
-
-// Helper function to print a single row with borders
-func printRow(first string, days []string, colWidth int) {
-	var row []string
-	// Add the first column (Issue Key)
-	row = append(row, fmt.Sprintf("%-*s", colWidth, first))
-
-	// Add the days' columns
-	for _, day := range days {
-		row = append(row, fmt.Sprintf("%-*s", colWidth, day))
-	}
-
-	// Join the columns with borders
-	fmt.Println("| " + strings.Join(row, " | ") + " |")
-}
-
-// Helper function to print the table border
-func printBorder(numCols int, colWidth int) {
-	fmt.Print("+")
-	for i := 0; i < numCols+1; i++ {
-		fmt.Print(strings.Repeat("-", colWidth+2))
-		fmt.Print("+")
-	}
-	fmt.Println()
-}
-
-func (js *JiraService) GetUserWorkLogs() error {
-
-	js.GetUsersIssues()
+func (js *JiraService) GetUserWorkLogs(since time.Time) (map[string]map[string][]string, error) {
 
 	table := map[string]map[string][]string{}
 
-	type TempWorklog struct {
-		Day     int
-		Worklog []string
+	usersIssues, err := js.GetUsersIssuesFromPeriod(since, time.Now())
+	if err != nil {
+		slog.Error("error whule getting user's in progress issuess", "error", err.Error())
+		return table, err
 	}
 
-	type TempIssue struct {
-		Key      string
-		Worklogs []TempWorklog
+	for i, issue := range usersIssues {
+		workLog, _ := js.GetWorkLogsForIssue(issue.Key)
+		usersIssues[i].Worklogs = workLog.WorkLogs
 	}
 
-	type Table struct {
-		Issues []TempIssue
-	}
+	for _, issue := range usersIssues {
 
-	// var tempTable Table
+		if issue.Updated.Before(since) {
+			continue
+		}
 
-	date := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Local).Add(-60 * 24 * time.Hour)
-	fmt.Println(date)
-	for _, issue := range js.UserIssues {
 		for _, worklog := range issue.Worklogs {
-			if issue.Key == "SAV-2412" {
-				fmt.Println(worklog.Started)
-			}
-
-			if worklog.Started.Before(date) {
+			if worklog.Started.Month() != since.Month() || worklog.Started.Year() != since.Year() {
 				continue
 			}
 
 			if _, ok := table[issue.Key]; ok {
-
-				table[issue.Key][fmt.Sprintf("%d", worklog.Started.Day())] = append(table[issue.Key][fmt.Sprintf("%d", date.Day())], worklog.TimeSpent)
+				table[issue.Key][fmt.Sprintf("%d", worklog.Started.Day())] = append(table[issue.Key][fmt.Sprintf("%d", worklog.Started.Day())], worklog.TimeSpent)
 			} else {
 				table[issue.Key] = map[string][]string{
-					fmt.Sprintf("%d", worklog.Started.Day()): []string{worklog.TimeSpent},
+					fmt.Sprintf("%d", worklog.Started.Day()): {worklog.TimeSpent},
 				}
 			}
 		}
 	}
 
-	jsonData, _ := json.MarshalIndent(table, "", "	")
-
-	fmt.Println(string(jsonData))
-	// table = map[string]map[string][]string{
-	// 	"SAV-2412": {
-	// 		"11": {"1d"},
-	// 		"12": {"1d"},
-	// 		"13": {"1d"},
-	// 		"15": {"0m"},
-	// 		"16": {"1d"},
-	// 	},
-	// 	"SAV-2413": {
-	// 		"10": {"2d"},
-	// 		"12": {"1h"},
-	// 		"16": {"3h"},
-	// 		"18": {"4h"},
-	// 	},
-	// }
-
-	// fmt.Println(table)
-	// drawTable(table)
-
-	return nil
+	return table, nil
 }
 
-func (js *JiraService) GetWorkLogsForIssue(issue string) error {
+func (js *JiraService) GetWorkLogsForIssue(issue string) (WorklogsResponseObject, error) {
 
 	urlPath := fmt.Sprintf("rest/api/3/issue/%s/worklog", issue)
 
@@ -512,7 +402,7 @@ func (js *JiraService) GetWorkLogsForIssue(issue string) error {
 
 	if err != nil {
 		slog.Error("Error while requesting worklogs for issue", "error", err.Error())
-		return err
+		return WorklogsResponseObject{}, err
 	}
 
 	var worklogResponse WorklogsResponseObject
@@ -521,26 +411,26 @@ func (js *JiraService) GetWorkLogsForIssue(issue string) error {
 
 	if err != nil {
 		slog.Error("Error while reading response from getting log work", "error", err.Error())
-		return err
+		return WorklogsResponseObject{}, err
 	}
 
 	err = json.Unmarshal(readData, &worklogResponse)
 
 	if err != nil {
 		slog.Error("Error while unmarshaling  log work reponse", "error", err.Error())
-		return err
+		return WorklogsResponseObject{}, err
 	}
 
-	other, err := json.MarshalIndent(worklogResponse, "", "	")
+	// other, err := json.MarshalIndent(worklogResponse, "", "	")
 
-	if err != nil {
-		slog.Error("Error while marshaling log work response", "error", err.Error())
-		return err
-	}
+	// if err != nil {
+	// 	slog.Error("Error while marshaling log work response", "error", err.Error())
+	// 	return WorklogsResponseObject{}, err
+	// }
 
-	fmt.Println(string(other))
+	// fmt.Println(string(other))
 
-	return err
+	return worklogResponse, err
 }
 
 func (js *JiraService) UpdateIssue(issue string, status string) error {
@@ -585,26 +475,85 @@ func (js *JiraService) GetMySelf() error {
 	return nil
 }
 
-func (js *JiraService) GetUsersIssues() error {
+func (js *JiraService) GetIssues(jql string) ([]Issue, error) {
+	urlPath := "rest/api/3/search/jql"
 
-	// jql := fmt.Sprintf("jql=assignee=%s&maxResults=5000", js.User.DisplayName)
-	// urlPath := fmt.Sprintf("rest/api/3/search/jql?%s", url.QueryEscape(jql))
-	urlPath := fmt.Sprintf("rest/api/3/search/jql")
+	// maxResults maybe subject to local restrictions
 
-	data := map[string]any{
-		"jql":        fmt.Sprintf("assignee = \"%s\" AND status IN (\"In Progress\")", js.User.DisplayName),
-		"maxResults": 500,
-		"fields":     []string{"key", "id", "summary", "worklog"},
+	issues := []Issue{}
+	nextPageToken := ""
+
+	for {
+
+		data := map[string]any{
+			"jql":        jql,
+			"maxResults": 5000,
+			"fields":     []string{"key", "id", "summary", "updated"}, // "worklog"
+		}
+		if nextPageToken != "" {
+			data["nextPageToken"] = nextPageToken
+		}
+
+		response, err := js.MakeJiraRequest(urlPath, "POST", data)
+
+		if err != nil {
+			slog.Error("error while getting user issues", "error", err.Error())
+			return []Issue{}, err
+		}
+
+		var result IssuesResponse
+
+		readData, err := io.ReadAll(response.Body)
+
+		if err != nil {
+			slog.Error("Error while reading response from getting log work", "error", err.Error())
+			return []Issue{}, err
+		}
+
+		err = json.Unmarshal(readData, &result)
+
+		if err != nil {
+			slog.Error("Error while unmarshaling log work reponse", "error", err.Error())
+			return []Issue{}, err
+		}
+
+		issues = append(issues, result.Issues...)
+
+		if result.NextPageToken == "" {
+			break
+		} else {
+			nextPageToken = result.NextPageToken
+		}
+
 	}
 
-	response, err := js.MakeJiraRequest(urlPath, "POST", data)
+	return issues, nil
+}
+
+func (js *JiraService) GetUsersInProgressIssues() ([]Issue, error) {
+	jql := fmt.Sprintf("assignee = \"%s\" AND status IN (\"In Progress\")", js.User.DisplayName)
+	return js.GetIssues(jql)
+}
+
+func (js *JiraService) GetUsersIssuesFromPeriod(start time.Time, end time.Time) ([]Issue, error) {
+
+	from := fmt.Sprintf("%d/%0*d/%0*d", start.Year(), 2, start.Month(), 2, start.Day())
+	to := fmt.Sprintf("%d/%0*d/%0*d", end.Year(), 2, end.Month()+1, 2, end.Day())
+	jql := fmt.Sprintf("assignee = \"%s\" AND worklogDate >= \"%s\" AND worklogDate < \"%s\"", js.User.DisplayName, from, to)
+	// fmt.Println(jql)
+	return js.GetIssues(jql)
+}
+
+func (js *JiraService) GetIssueFields() error {
+	urlPath := "rest/api/3/field"
+	response, err := js.MakeJiraRequest(urlPath, "GET", map[string]any{})
 
 	if err != nil {
-		slog.Error("error while getting user issues", "error", err.Error())
+		slog.Error("error while getting myself", "error", err.Error())
 		return err
 	}
 
-	var result map[string][]Issue
+	var tempResponse []map[string]any
 
 	readData, err := io.ReadAll(response.Body)
 
@@ -613,23 +562,20 @@ func (js *JiraService) GetUsersIssues() error {
 		return err
 	}
 
-	err = json.Unmarshal(readData, &result)
+	err = json.Unmarshal(readData, &tempResponse)
 
 	if err != nil {
 		slog.Error("Error while unmarshaling  log work reponse", "error", err.Error())
 		return err
 	}
 
-	// jsonFormat, err := json.MarshalIndent(result, "", "	")
-
-	// if err != nil {
-	// 	slog.Error("Error while marshaling log work response", "error", err.Error())
-	// 	return err
+	// for _, elem := range tempResponse {
+	// fmt.Println(elem["key"])
 	// }
 
-	js.UserIssues = result["issues"]
+	// temp, _ := json.MarshalIndent(tempResponse, "", " ")
 
-	// fmt.Println(string(jsonFormat))
+	// fmt.Println(string(temp))
 
 	return nil
 }
