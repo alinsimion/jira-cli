@@ -34,6 +34,8 @@ jobs:
       # Upload the build output as a release asset
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
           asset_path: dist/myprogram-${{ matrix.os }}-${{ matrix.arch }}
