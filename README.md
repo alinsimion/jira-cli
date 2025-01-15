@@ -1,11 +1,15 @@
 # jira-cli
 A command line interface for interacting with JIRA
 
+## Platform specific executables 
+
+[Windows](https://github.com/alinsimion/jira-cli/releases/download/NewRelease/myprogram-windows-amd64)
+[Linux](https://github.com/alinsimion/jira-cli/releases/download/NewRelease/myprogram-linux-amd64)
+[MacOS](https://github.com/alinsimion/jira-cli/releases/download/NewRelease/myprogram-darwin-amd64)
+
 ## Releases
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/alinsimion/jira-cli?style=flat-square)
-
-
 
 ### Currently supports:
 - Logging work
