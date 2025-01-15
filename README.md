@@ -3,7 +3,7 @@ A command line interface for interacting with JIRA
 
 ## Releases
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/your-username/your-repo?style=flat-square)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/alinsimion/jira-cli?style=flat-square)
 
 
 
