@@ -21,7 +21,7 @@ func main() {
 
 		utils.VarMap[varName] = os.Getenv(varName)
 		if utils.VarMap[varName] == "" {
-			if varOptional {
+			if !varOptional {
 				slog.Warn("Variable is empty", "variable", varName)
 			} else {
 				panic(fmt.Sprintf("could not find %s in Environment Vars", varName))
